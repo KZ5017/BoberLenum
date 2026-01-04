@@ -72,6 +72,16 @@ if [[ -t 1 ]]; then
   MAGENTA="${ESC}35m"
   CYAN="${ESC}36m"
   GREY="${ESC}37m"
+  BLACK="${ESC}30m"
+  BRIGHT_BLACK="${ESC}90m"
+  BRIGHT_RED="${ESC}91m"
+  BRIGHT_GREEN="${ESC}92m"
+  BRIGHT_YELLOW="${ESC}93m"
+  BRIGHT_BLUE="${ESC}94m"
+  BRIGHT_MAGENTA="${ESC}95m"
+  BRIGHT_CYAN="${ESC}96m"
+  BRIGHT_WHITE="${ESC}97m"
+
 else
   RESET=""
   BOLD=""
@@ -410,20 +420,177 @@ run_sudo_list() {
 
 # Check presence of a list of tools using the 'command' builtin and print found ones
 check_tools() {
-  local tools=(wget curl locate nc mkfifo ncat busybox php python perl ruby go awk gcc)
-  local found=()
-  for t in "${tools[@]}"; do
-    if command -v "$t" >/dev/null 2>&1; then
-      found+=("$t")
+
+  # ---- Tool categories ----
+  declare -A TOOL_CATEGORIES=(
+    # Network / Transfer / Pivot
+    [wget]="Network"
+    [curl]="Network"
+    [ftp]="Network"
+    [tftp]="Network"
+    [scp]="Network"
+    [sftp]="Network"
+    [ssh]="Network"
+    [telnet]="Network"
+    [nc]="Network"
+    [ncat]="Network"
+    [socat]="Network"
+    [openssl]="Network"
+
+    # Interpreters / Script engines
+    [python]="Interpreter"
+    [python2]="Interpreter"
+    [python3]="Interpreter"
+    [pip]="Interpreter"
+    [pip3]="Interpreter"
+    [perl]="Interpreter"
+    [ruby]="Interpreter"
+    [php]="Interpreter"
+    [node]="Interpreter"
+    [npm]="Interpreter"
+    [lua]="Interpreter"
+    [java]="Interpreter"
+    [javac]="Interpreter"
+
+    # Compilers / Build
+    [gcc]="Compiler"
+    [cc]="Compiler"
+    [clang]="Compiler"
+    [make]="Compiler"
+    [ld]="Compiler"
+    [objdump]="Compiler"
+    [objcopy]="Compiler"
+    [strip]="Compiler"
+
+    # LOLBins / Priv-Esc helpers
+    [find]="LOLBins"
+    [tar]="LOLBins"
+    [zip]="LOLBins"
+    [unzip]="LOLBins"
+    [rsync]="LOLBins"
+    [awk]="LOLBins"
+    [sed]="LOLBins"
+    [less]="LOLBins"
+    [more]="LOLBins"
+    [nano]="LOLBins"
+    [vim]="LOLBins"
+    [vi]="LOLBins"
+    [env]="LOLBins"
+    [timeout]="LOLBins"
+
+    # Containers / Orchestration
+    [docker]="Container"
+    [docker-compose]="Container"
+    [podman]="Container"
+    [kubectl]="Container"
+    [crictl]="Container"
+    [ctr]="Container"
+
+    # Networking / Recon
+    [ip]="Recon"
+    [ss]="Recon"
+    [netstat]="Recon"
+    [arp]="Recon"
+    [arping]="Recon"
+    [route]="Recon"
+    [ping]="Recon"
+    [traceroute]="Recon"
+    [nmap]="Recon"
+
+    # Process / Debug
+    [strace]="Debug"
+    [ltrace]="Debug"
+    [ps]="Debug"
+    [pstree]="Debug"
+    [top]="Debug"
+    [htop]="Debug"
+    [watch]="Debug"
+
+    # Archive / Exfil
+    [7z]="Archive"
+    [7za]="Archive"
+    [gzip]="Archive"
+    [gunzip]="Archive"
+    [xz]="Archive"
+    [lzma]="Archive"
+    [base64]="Archive"
+
+    # Auth / Privilege
+    [sudo]="Privilege"
+    [su]="Privilege"
+    [passwd]="Privilege"
+    [newgrp]="Privilege"
+    [chsh]="Privilege"
+  )
+
+  # High-value / GTFOBins-critical tools
+  local HIGH_VALUE=(
+    socat docker kubectl vim vi less tar find awk env python python3 gcc sudo
+  )
+
+  # Colors per category
+  category_color() {
+    case "$1" in
+      Network)
+        echo "${CYAN}"
+        ;;
+      Interpreter)
+        echo "${GREEN}"
+        ;;
+      Compiler)
+        echo "${MAGENTA}"
+        ;;
+      LOLBins)
+        echo "${YELLOW}"
+        ;;
+      Container)
+        echo "${BRIGHT_YELLOW}"
+        ;;
+      Recon)
+        echo "${BRIGHT_BLUE}"
+        ;;
+      Debug)
+        echo "${GREY}"
+        ;;
+      Archive)
+        echo "${BRIGHT_WHITE}"
+        ;;
+      Privilege)
+        echo "${RED}"
+        ;;
+      *)
+        echo "${RESET}"
+        ;;
+    esac
+  }
+
+
+  pretty_run_header "Available tools (categorized)"
+
+  declare -A FOUND_BY_CAT=()
+
+  for tool in "${!TOOL_CATEGORIES[@]}"; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      cat="${TOOL_CATEGORIES[$tool]}"
+      FOUND_BY_CAT["$cat"]+="$tool "
     fi
   done
 
-  pretty_run_header "The following tools are available on the system:"
-  for f in "${found[@]}"; do
-    echo "$f"
+  for cat in Network Interpreter Compiler LOLBins Container Recon Debug Archive Privilege; do
+    if [[ -n "${FOUND_BY_CAT[$cat]:-}" ]]; then
+      printf "%b\n" "${BOLD}[$cat]${RESET}"
+      for t in ${FOUND_BY_CAT[$cat]}; do
+        local mark=""
+        if [[ " ${HIGH_VALUE[*]} " == *" $t "* ]]; then
+          mark="${RED}${BOLD} [HIGH]${RESET}"
+        fi
+        printf "  %b%s%b%b\n" "$(category_color "$cat")" "$t" "$RESET" "$mark"
+      done
+      echo
+    fi
   done
-  echo
 }
+
 
 # Attempt to download pspy and/or linpeas from the provided IP using wget or curl
 # - prefer wget if available, otherwise use curl
@@ -759,12 +926,40 @@ run_cmd "ls -la ~/" ls -la "$HOME"/
 check_tools
 attempt_downloads
 
+# Network interfaces and IP addresses
+if command -v ip >/dev/null 2>&1; then
+  run_cmd "ip addr" ip addr
+elif command -v ifconfig >/dev/null 2>&1; then
+  run_cmd "ifconfig -a" ifconfig -a
+else
+  run_cmd "/proc/net/dev" cat /proc/net/dev
+fi
+
 # Show /etc/hosts if readable
 if [[ -r /etc/hosts ]]; then
   run_cmd "/etc/hosts (cat)" cat /etc/hosts
 else
   echo "==== /etc/hosts (unreadable or missing) ===="
   echo "/etc/hosts not readable or does not exist"
+  echo
+fi
+
+# Show /etc/resolv.conf if readable
+if [[ -e /etc/resolv.conf ]]; then
+  if [[ -L /etc/resolv.conf ]]; then
+    run_cmd "/etc/resolv.conf (symlink)" ls -l /etc/resolv.conf
+  fi
+
+  if [[ -r /etc/resolv.conf ]]; then
+    run_cmd "/etc/resolv.conf (cat)" cat /etc/resolv.conf
+  else
+    echo "==== /etc/resolv.conf (unreadable) ===="
+    echo "/etc/resolv.conf exists but is not readable"
+    echo
+  fi
+else
+  echo "==== /etc/resolv.conf (missing) ===="
+  echo "/etc/resolv.conf does not exist"
   echo
 fi
 
@@ -778,6 +973,85 @@ else
   echo "Neither netstat nor ss is available on this system; cannot list listening sockets with process info."
   echo
 fi
+
+
+# Mounted filesystems overview (annotated)
+if command -v findmnt >/dev/null 2>&1; then
+  pretty_run_header "Mounted filesystems (annotated)"
+  # Column hint header
+  printf "%b%s%b\n" \
+    "${DIM}${CYAN}" \
+    "TARGET | SOURCE | FSTYPE | OPTIONS" \
+    "$RESET"
+
+  while IFS= read -r line; do
+    target=$(awk '{print $1}' <<< "$line")
+    source=$(awk '{print $2}' <<< "$line")
+    fstype=$(awk '{print $3}' <<< "$line")
+    opts=$(awk '{print $4}' <<< "$line")
+
+    # ÚJ: pipe-os formátum
+    formatted="${target} | ${source} | ${fstype} | ${opts}"
+
+    risk=""
+    color="$RESET"
+
+    # ---- HIGH RISK ----
+    if [[ "$opts" == *rw* ]] &&
+       [[ "$opts" != *nosuid* || "$opts" != *noexec* || "$opts" != *nodev* ]]; then
+      risk=" [HIGH: weak mount options]"
+      color="${RED}"
+    fi
+
+    if [[ "$fstype" =~ ^(nfs|cifs|fuse|overlay)$ ]]; then
+      risk=" [HIGH: network/container fs]"
+      color="${RED}"
+    fi
+
+    if [[ "$target" =~ ^(/|/var|/opt|/tmp)$ && "$opts" == *rw* ]]; then
+      risk=" [HIGH: critical path writable]"
+      color="${RED}"
+    fi
+
+    # ---- WARN ----
+    if [[ -z "$risk" ]]; then
+      if [[ "$fstype" == "tmpfs" && "$opts" != *noexec* ]]; then
+        risk=" [WARN: tmpfs executable]"
+        color="${YELLOW}"
+      elif [[ "$fstype" == "loop" || "$source" == *loop* ]]; then
+        risk=" [WARN: loop mount]"
+        color="${YELLOW}"
+      elif [[ "$fstype" == "bind" || "$opts" == *bind* ]]; then
+        risk=" [WARN: bind mount]"
+        color="${YELLOW}"
+      elif [[ "$opts" == *uid=* ]]; then
+        risk=" [WARN: user mount]"
+        color="${YELLOW}"
+      fi
+    fi
+
+    # ---- PRINT ----
+    if [[ "$risk" == *HIGH* ]]; then
+      printf "%b%s%b%b%s%b\n" \
+        "$color" "$formatted" "$RESET" \
+        "${RED}${BOLD}" "$risk" "$RESET"
+
+    elif [[ "$risk" == *WARN* ]]; then
+      printf "%b%s%b%b%s%b\n" \
+        "$color" "$formatted" "$RESET" \
+        "${YELLOW}" "$risk" "$RESET"
+
+    else
+      printf "%b%s%b\n" "$color" "$formatted" "$RESET"
+    fi
+
+  done < <(findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS)
+
+  echo
+else
+  run_cmd "Mounted filesystems (mount)" mount
+fi
+
 
 # Print system crontab if readable
 if [[ -r /etc/crontab ]]; then
