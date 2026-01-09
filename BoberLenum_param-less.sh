@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# BoberLenum.sh
-# Parameter-aware enumeration scaffold with stricter validation, downloads and user enumeration
-# Comments in English as requested. Functionality and logic preserved exactly.
-
 set -e
-
 cat << 'BANNER'
 
                            #########                                       
@@ -47,240 +42,16 @@ cat << 'BANNER'
      ·▀▀▀▀  ▀█▄▀▪·▀▀▀▀  ▀▀▀ .▀  ▀.▀▀▀  ▀▀▀ ▀▀ █▪ ▀▀▀ ▀▀  █▪▀▀▀
 
 BANNER
-
 set -o errexit
 set -o nounset
 set -o pipefail
-
-# ---- Configuration ----
-MAX_PW_LEN=256
-MAX_NAME_LEN=30
-DOWNLOAD_TIMEOUT=7  # seconds
-
-# ---- Helpers ----
-
-# Print an English error message and exit with non-zero status
-error_exit() {
-  local msg="$1"
-  echo "Error: $msg" >&2
-  exit 1
-}
-
-# Simple help output function (English comments)
-print_help() {
-  # Print minimal usage/help text and exit
-  cat <<'HELPMSG'
-BoberLenum.sh - usage
-  -pw <password>       : verify current user's sudo password (will be checked; do not supply if not needed)
-  -ip <IPv4 address>   : required when using -pspy or -linpeas; must be valid IPv4
-  -pspy <filename>     : remote pspy filename to download from http://<ip>/
-  -linpeas <filename>  : remote linpeas filename to download from http://<ip>/
-  -h, --help           : show this help and exit
-
-Notes:
-  * If any parameters are provided, they are validated and cross-checked (no logic changed).
-  * When -ip is provided, at least one of -pspy or -linpeas is required.
-  * Password validation uses sudo and will fail if sudo is passwordless or user is not in sudoers.
-HELPMSG
-  exit 0
-}
-
-
-# ---- Parameters and parsing ----
-PW=""
-PW_PROVIDED=false
-IP=""
-PSPY=""
-LINPEAS=""
-ANY_PARAM_PROVIDED=false
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      print_help
-      ;;
-    -pw)
-      PW="$2"
-      PW_PROVIDED=true
-      ANY_PARAM_PROVIDED=true
-      shift 2
-      ;;
-    -ip)
-      IP="$2"
-      ANY_PARAM_PROVIDED=true
-      shift 2
-      ;;
-    -pspy)
-      PSPY="$2"
-      ANY_PARAM_PROVIDED=true
-      shift 2
-      ;;
-    -linpeas)
-      LINPEAS="$2"
-      ANY_PARAM_PROVIDED=true
-      shift 2
-      ;;
-    *)
-      error_exit "Unknown option $1"
-      ;;
-  esac
-done
-
 print_banner() {
   echo "=== BoberLenum enumeration run ==="
   echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
   echo
 }
-
 # ---- Enumeration flow (preserve order and behavior) ----
 print_banner
-
-
-# Validate IPv4 address format and octet ranges
-validate_ip() {
-  local ip="$1"
-  if [[ ! $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-    return 1
-  fi
-  IFS='.' read -r -a octets <<< "$ip"
-  for o in "${octets[@]}"; do
-    if (( o < 0 || o > 255 )); then
-      return 1
-    fi
-  done
-  return 0
-}
-
-# Validate password length (only when provided)
-validate_pw_len() {
-  local pw="$1"
-  local len=${#pw}
-  if (( len == 0 )); then
-    return 1
-  fi
-  if (( len > MAX_PW_LEN )); then
-    return 1
-  fi
-  return 0
-}
-
-# Validate simple name length for pspy and linpeas
-validate_name_len() {
-  local s="$1"
-  local len=${#s}
-  if (( len == 0 || len > MAX_NAME_LEN )); then
-    return 1
-  fi
-  return 0
-}
-
-# Verify that the provided password is the current user's password using sudo
-# Approach:
-#  1) Ensure sudo exists.
-#  2) Invalidate cached timestamp with sudo -k.
-#  3) Check non-interactively (sudo -n -v). If it returns 0 after -k, sudo does not require a password (NOPASSWD) -> cannot verify.
-#  4) Otherwise attempt to validate by feeding the password to sudo -S -v.
-verify_password() {
-  local pw="$1"
-
-  if ! command -v sudo >/dev/null 2>&1; then
-    error_exit "Cannot verify password: sudo is not installed on this system."
-  fi
-
-  # Invalidate cached credentials so we force a password prompt if required
-  set +e
-  sudo -k
-  sudo -n -v >/dev/null 2>&1
-  local nopass_rc=$?
-  set -e
-
-  if (( nopass_rc == 0 )); then
-    error_exit "Cannot verify password: sudo does not require a password (NOPASSWD) or sudo is configured passwordless."
-  fi
-
-  # Attempt to validate by supplying the password to sudo -S -v
-  set +e
-  local out
-  out=$(printf "%s\n" "$pw" | sudo -S -v 2>&1)
-  local rc=$?
-  set -e
-
-  if (( rc == 0 )); then
-    :
-    return 0
-  fi
-
-  if echo "$out" | grep -qi "is not in the sudoers file"; then
-    error_exit "Cannot verify password: user is not in the sudoers file; password validation via sudo is not possible."
-  fi
-
-  if echo "$out" | grep -qiE "incorrect|sorry, try again|authentication failure|password is incorrect"; then
-    echo "The password entered: \"$pw\" is incorrect!"
-    exit 1
-  fi
-
-  error_exit "Password verification failed: $out"
-}
-
-# If any parameters were provided, validate and enforce rules.
-# If no parameters were provided, skip validation entirely (but still run commands).
-if [[ "${ANY_PARAM_PROVIDED}" == "true" ]]; then
-
-  # Validate -pw length first (if provided)
-  if [[ "${PW_PROVIDED}" == "true" ]]; then
-    if validate_pw_len "$PW"; then
-      :
-    else
-      echo "pw: INVALID"
-      error_exit "Invalid -pw parameter: length must be between 1 and $MAX_PW_LEN characters."
-    fi
-    # Now verify that the provided password is actually the user's password
-    verify_password "$PW"
-  fi
-
-  # Validate -ip if provided; if invalid, exit immediately
-  if [[ -n $IP ]]; then
-    if validate_ip "$IP"; then
-      :
-    else
-      echo "ip: INVALID"
-      error_exit "Invalid -ip parameter: '$IP' is not a valid IPv4 address."
-    fi
-  fi
-
-  # Validate -pspy and -linpeas; if invalid, exit immediately
-  if [[ -n $PSPY ]]; then
-    if validate_name_len "$PSPY"; then
-      :
-    else
-      echo "pspy: INVALID"
-      error_exit "Invalid -pspy parameter: must be 1..$MAX_NAME_LEN characters."
-    fi
-    if [[ -z $IP ]]; then
-      error_exit "-pspy requires a valid -ip parameter to be provided."
-    fi
-  fi
-
-  if [[ -n $LINPEAS ]]; then
-    if validate_name_len "$LINPEAS"; then
-      :
-    else
-      echo "linpeas: INVALID"
-      error_exit "Invalid -linpeas parameter: must be 1..$MAX_NAME_LEN characters."
-    fi
-    if [[ -z $IP ]]; then
-      error_exit "-linpeas requires a valid -ip parameter to be provided."
-    fi
-  fi
-
-  # NEW RULE: if -ip is provided, require at least one of -pspy or -linpeas
-  if [[ -n $IP ]]; then
-    if [[ -z $PSPY && -z $LINPEAS ]]; then
-      error_exit "-ip requires at least one of -pspy or -linpeas to be provided."
-    fi
-  fi
-fi
-
 # countdown in 3 seconds
 for i in 3 2 1; do
   printf "\rContinue %d..." "$i"
@@ -320,8 +91,6 @@ print_finding() {
   local msg="$1"
   printf "${RED}${BOLD}>>> %s${RESET}\n" "$msg"
 }
-
-# Run a command and print a labeled header and its output without exiting on non-zero
 run_cmd() {
   set +e
   local output
@@ -334,61 +103,11 @@ run_cmd() {
   fi
   echo
 }
-
 ansi_reset() {
   printf "\033[0m"
 }
-
-# Special handling for sudo -l:
-#  1) Try non-interactive (sudo -n -l). If it succeeds, print output.
-#  2) If it fails because a password is required, and -pw was provided, feed that password via stdin to sudo -S -l.
-#  3) If -pw was not provided, try empty password via sudo -S -l (send newline).
-run_sudo_list() {
-  local tmp
-  tmp=$(mktemp)
-  set +e
-  sudo -n -l &> "$tmp"
-  local rc=$?
-  set -e
-
-  if (( rc == 0 )); then
-    cat "$tmp"
-    rm -f "$tmp"
-    echo
-    return 0
-  fi
-
-  local nonint_msg
-  nonint_msg=$(<"$tmp")
-  rm -f "$tmp"
-
-  if [[ "${PW_PROVIDED:-false}" == "true" ]]; then
-    echo "sudo -l requires a password; attempting with provided -pw..."
-    set +e
-    printf "%s\n" "$PW" | sudo -S -l 2>&1
-    rc=$?
-    set -e
-    if (( rc != 0 )); then
-      echo "sudo -l attempt with provided password exited with code $rc"
-    fi
-  else
-    echo "sudo -l requires a password; attempting with empty password..."
-    set +e
-    printf "\n" | sudo -S -l 2>&1
-    rc=$?
-    set -e
-    if (( rc != 0 )); then
-      echo "sudo -l attempt with empty password exited with code $rc"
-    fi
-  fi
-  echo
-}
-
-# Check presence of a list of tools using the 'command' builtin and print found ones
 check_tools() {
-  # ---- Tool categories ----
   declare -A TOOL_CATEGORIES=(
-    # Network / Transfer / Pivot
     [wget]="Network"
     [curl]="Network"
     [ftp]="Network"
@@ -401,8 +120,6 @@ check_tools() {
     [ncat]="Network"
     [socat]="Network"
     [openssl]="Network"
-
-    # Interpreters / Script engines
     [python]="Interpreter"
     [python2]="Interpreter"
     [python3]="Interpreter"
@@ -416,8 +133,6 @@ check_tools() {
     [lua]="Interpreter"
     [java]="Interpreter"
     [javac]="Interpreter"
-
-    # Compilers / Build
     [gcc]="Compiler"
     [cc]="Compiler"
     [clang]="Compiler"
@@ -426,8 +141,6 @@ check_tools() {
     [objdump]="Compiler"
     [objcopy]="Compiler"
     [strip]="Compiler"
-
-    # LOLBins / Priv-Esc helpers
     [find]="LOLBins"
     [tar]="LOLBins"
     [zip]="LOLBins"
@@ -442,16 +155,12 @@ check_tools() {
     [vi]="LOLBins"
     [env]="LOLBins"
     [timeout]="LOLBins"
-
-    # Containers / Orchestration
     [docker]="Container"
     [docker-compose]="Container"
     [podman]="Container"
     [kubectl]="Container"
     [crictl]="Container"
     [ctr]="Container"
-
-    # Networking / Recon
     [ip]="Recon"
     [ss]="Recon"
     [netstat]="Recon"
@@ -461,8 +170,6 @@ check_tools() {
     [ping]="Recon"
     [traceroute]="Recon"
     [nmap]="Recon"
-
-    # Process / Debug
     [strace]="Debug"
     [ltrace]="Debug"
     [ps]="Debug"
@@ -470,8 +177,6 @@ check_tools() {
     [top]="Debug"
     [htop]="Debug"
     [watch]="Debug"
-
-    # Archive / Exfil
     [7z]="Archive"
     [7za]="Archive"
     [gzip]="Archive"
@@ -479,24 +184,19 @@ check_tools() {
     [xz]="Archive"
     [lzma]="Archive"
     [base64]="Archive"
-
-    # Auth / Privilege
     [sudo]="Privilege"
     [su]="Privilege"
     [passwd]="Privilege"
     [newgrp]="Privilege"
     [chsh]="Privilege"
   )
-
   declare -A FOUND_BY_CAT=()
-
   for tool in "${!TOOL_CATEGORIES[@]}"; do
     if command -v "$tool" >/dev/null 2>&1; then
       cat="${TOOL_CATEGORIES[$tool]}"
       FOUND_BY_CAT["$cat"]+="$tool "
     fi
   done
-
   for cat in Network Interpreter Compiler LOLBins Container Recon Debug Archive Privilege; do
     if [[ -n "${FOUND_BY_CAT[$cat]:-}" ]]; then
       print_sub_subsection "$cat"
@@ -507,90 +207,8 @@ check_tools() {
     fi
   done
 }
-
-# Attempt to download pspy and/or linpeas from the provided IP using wget or curl
-# - prefer wget if available, otherwise use curl
-# - apply a DOWNLOAD_TIMEOUT (seconds) to avoid long hangs
-# - set executable bit on successful downloads
-# - do not exit on failure; print success/failure messages and continue
-attempt_downloads() {
-  if [[ -z "${PSPY:-}" && -z "${LINPEAS:-}" ]]; then
-    return 0
-  fi
-
-  if [[ -z "${IP:-}" ]]; then
-    echo "Skipping download: no -ip provided."
-    return 0
-  fi
-
-  if command -v wget >/dev/null 2>&1; then
-    echo "wget found, attempt to download pspy and/or linpeas..."
-    for file in "$PSPY" "$LINPEAS"; do
-      if [[ -z "$file" ]]; then
-        continue
-      fi
-      local url="http://${IP}/${file}"
-      echo "Attempting: wget $url -> $file (timeout ${DOWNLOAD_TIMEOUT}s)"
-      set +e
-      wget --timeout="${DOWNLOAD_TIMEOUT}" --tries=1 -q -O "$file" "$url"
-      local rc=$?
-      set -e
-      if (( rc == 0 )); then
-        echo "Downloaded $file successfully."
-        if chmod +x "$file"; then
-          echo "Set executable: $file"
-        else
-          echo "Warning: failed to set executable bit on $file"
-        fi
-      else
-        echo "Failed to download $file from $url (wget exit code $rc)."
-        if [[ -f "$file" ]]; then
-          rm -f "$file"
-        fi
-      fi
-    done
-    echo
-    return 0
-  fi
-
-  if command -v curl >/dev/null 2>&1; then
-    echo "curl found, attempt to download pspy and/or linpeas..."
-    for file in "$PSPY" "$LINPEAS"; do
-      if [[ -z "$file" ]]; then
-        continue
-      fi
-      local url="http://${IP}/${file}"
-      echo "Attempting: curl $url -> $file (timeout ${DOWNLOAD_TIMEOUT}s)"
-      set +e
-      curl -sSfL --max-time "${DOWNLOAD_TIMEOUT}" -o "$file" "$url"
-      local rc=$?
-      set -e
-      if (( rc == 0 )); then
-        echo "Downloaded $file successfully."
-        if chmod +x "$file"; then
-          echo "Set executable: $file"
-        else
-          echo "Warning: failed to set executable bit on $file"
-        fi
-      else
-        echo "Failed to download $file from $url (curl exit code $rc)."
-        if [[ -f "$file" ]]; then
-          rm -f "$file"
-        fi
-      fi
-    done
-    echo
-    return 0
-  fi
-
-  echo "wget or curl is not found on the system, pspy and/or linpeas will not be downloaded"
-  echo
-  return 0
-}
-
 systemd_custom_units() {
     local findings=0
-    # ---- RAW ENUM ----
     if ls /etc/systemd/system/*.service >/dev/null 2>&1; then
         ls -la /etc/systemd/system/*.service
         echo
@@ -599,10 +217,8 @@ systemd_custom_units() {
         echo
     fi
 }
-
 profile_d_info() {
     local findings=0
-    # ---- RAW ENUM ----
     if [[ -d /etc/profile.d ]]; then
         ls -la /etc/profile.d
         echo
@@ -612,17 +228,13 @@ profile_d_info() {
         return
     fi
 }
-
-# Show per-user information derived from /home/<user>
 show_user_info() {
   local user="${1:-}"
-  # getent may not return anything — use "set +u" for risky parts
   set +u
   local pw_entry
   pw_entry=$(getent passwd -- "$user" 2>/dev/null || true)
   local rc_pw=$?
   set -u
-
   if (( rc_pw == 0 )) && [[ -n "${pw_entry:-}" ]]; then
     IFS=':' read -r uname passwd uid gid gecos home shell <<< "${pw_entry}"
     uname="${uname:-$user}"
@@ -642,7 +254,6 @@ show_user_info() {
     echo "No passwd entry found for $user"
     home="/nonexistent"
   fi
-
   set +u
   local id_out
   id_out=$(id -- "$user" 2>&1) || id_out="$?"
@@ -653,7 +264,6 @@ show_user_info() {
   else
     echo "id: (could not retrieve) $id_out"
   fi
-
   if command -v lastlog >/dev/null 2>&1; then
     set +u
     local lastlog_out
@@ -669,8 +279,6 @@ show_user_info() {
   else
     echo "Last login: lastlog not available on system"
   fi
-
-  # Home directory stat and metadata — only if it exists and is accessible
   if [[ -n "${home:-}" && -d "$home" ]]; then
     set +u
     local stat_out
@@ -682,7 +290,6 @@ show_user_info() {
     else
       echo "Home dir: (stat failed) ${stat_out:-}"
     fi
-
     if [[ -d "$home/.ssh" ]]; then
       print_finding ".ssh directory exists"
       if [[ -f "$home/.ssh/authorized_keys" ]]; then
@@ -693,7 +300,6 @@ show_user_info() {
     else
       echo ".ssh directory: not present"
     fi
-
     for hist in .bash_history .zsh_history .profile; do
       if [[ -f "$home/$hist" ]]; then
         set +u
@@ -706,17 +312,13 @@ show_user_info() {
   else
     echo "Home directory: not present or not accessible"
   fi
-
-  # Simple email discovery: check GECOS and mail spools (robust, non-fatal)
   set +u
   local emails=()
-
   if [[ -n "${gecos:-}" ]]; then
     while IFS= read -r e; do
       emails+=("$e")
     done < <(printf '%s\n' "${gecos}" | grep -Eo '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' || true)
   fi
-
   for spool in "/var/mail/$user" "/var/spool/mail/$user"; do
     if [[ -r "$spool" ]]; then
       while IFS= read -r e; do
@@ -724,9 +326,7 @@ show_user_info() {
       done < <(head -n 50 "$spool" 2>/dev/null | grep -Eo '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' || true)
     fi
   done
-
   set -u
-
   if (( ${#emails[@]} )); then
     declare -A _seen
     local uniq=()
@@ -737,7 +337,6 @@ show_user_info() {
         uniq+=("$e")
       fi
     done
-
     if (( ${#uniq[@]} )); then
       print_finding "Possible email addresses related to $user:"
       for e in "${uniq[@]}"; do
@@ -749,14 +348,11 @@ show_user_info() {
   else
     echo "No email addresses found for $user (GECOS/spool checked)."
   fi
-
-  # Try to list crontab for the user (may fail if not permitted)
   set +u
   local crontab_out
   crontab_out=$(crontab -l -u -- "$user" 2>&1)
   local rc_cron=$?
   set -u
-
   if (( rc_cron == 0 )); then
     print_finding "Crontab entries for $user:"
     printf '%s\n' "$crontab_out"
@@ -766,7 +362,6 @@ show_user_info() {
     else
       echo "Crontab: not available via crontab -l (exit code: $rc_cron)"
     fi
-
     if [[ -r "/var/spool/cron/crontabs/$user" ]]; then
       print_finding "Spool /var/spool/cron/crontabs/$user:"
       set +u
@@ -784,13 +379,10 @@ show_user_info() {
       echo "No spool file readable for $user (no permission or file missing)."
     fi
   fi
-
-  # Find readable/writable/executable files and dirs owned by the user (skip if the user is the script runner)
   set +u
   local current_user
   current_user="$(id -un 2>/dev/null || true)"
   set -u
-
   if [[ "$current_user" == "$user" ]]; then
     echo "Find: skipped for $user (do not run find on the invoking user's own files)."
     echo
@@ -821,11 +413,8 @@ show_user_info() {
     echo
     set -u
   fi
-
   echo
 }
-
-# Enumerate users based on /home/ directories
 enumerate_home_users() {
   print_subsection "ls -la /home/"
   set +e
@@ -852,9 +441,7 @@ enumerate_home_users() {
     fi
   done
 }
-
 ip_info(){
-    # Network interfaces and IP addresses
     if command -v ip >/dev/null 2>&1; then
         run_cmd ip addr
     elif command -v ifconfig >/dev/null 2>&1; then
@@ -864,9 +451,7 @@ ip_info(){
         echo "Neither ip nor ss is available on this system; cannot list ip info."
     fi  
 }
-
 hosts_info(){
-    # Show /etc/hosts if readable
     if [[ -r /etc/hosts ]]; then
         run_cmd cat /etc/hosts
     else
@@ -875,9 +460,7 @@ hosts_info(){
         echo
     fi
 }
-
 resolv_info(){
-    # Show /etc/resolv.conf if readable
     if [[ -e /etc/resolv.conf ]]; then
         if [[ -L /etc/resolv.conf ]]; then
             run_cmd ls -l /etc/resolv.conf
@@ -895,9 +478,7 @@ resolv_info(){
         echo
     fi
 }
-
 netstat_info(){
-    # Show listening TCP sockets and owning programs (prefer netstat then ss)
     if command -v netstat >/dev/null 2>&1; then
         run_cmd netstat -lntup
     elif command -v ss >/dev/null 2>&1; then
@@ -908,17 +489,12 @@ netstat_info(){
         echo
     fi
 }
-
 lsblk_info() {
     if ! command -v lsblk >/dev/null 2>&1; then
         return
     fi
-
-    # ---- RAW ENUM ----
     lsblk -o NAME,MAJ:MIN,SIZE,FSTYPE,MOUNTPOINT
     echo
-
-    # ---- FINDINGS ----
     local root_dev
     root_dev=$(findmnt -n -o SOURCE / 2>/dev/null | sed 's|/dev/||')
 
@@ -932,35 +508,24 @@ lsblk_info() {
             print_finding "Additional block device mounted: /dev/$name -> $mountpoint"
         fi
     done < <(lsblk -n -o NAME,SIZE,FSTYPE,MOUNTPOINT)
-
     echo
 }
-
 mount_info() {
     if ! command -v findmnt >/dev/null 2>&1; then
         run_cmd mount
         return
     fi
-
-    # ---- RAW ENUM ----
     findmnt -ro TARGET,SOURCE,SIZE,FSTYPE,OPTIONS
     echo
-
-    # ---- FINDINGS (non-standard mounts) ----
     local findings=0
-
     while IFS= read -r line; do
         target=$(awk '{print $1}' <<< "$line")
         source=$(awk '{print $2}' <<< "$line")
         size=$(awk '{print $3}' <<< "$line")
         fstype=$(awk '{print $4}' <<< "$line")
-
-        # skip core system paths
         if [[ "$target" =~ ^(/|/boot|/boot/efi|/proc|/sys|/dev|/run|/usr|/lib|/var)(/|$) ]]; then
             continue
         fi
-
-        # interesting mount locations
         if [[ "$target" =~ ^(/mnt|/media|/opt|/srv|/tmp|/home|/data|/backup|/exports|/shared) ]]; then
             print_finding "Non-standard mount detected: $target ($fstype, $size) <- $source"
             findings=1
@@ -969,12 +534,9 @@ mount_info() {
 
     if [[ $findings -eq 0 ]]; then
         :
-        # opcionálisan: print_finding "No non-standard mounts detected"
     fi
-
     echo
 }
-
 exports_info() {
     if [[ ! -e /etc/exports ]]; then
         echo "-- /etc/exports (missing) --"
@@ -982,56 +544,41 @@ exports_info() {
         echo
         return
     fi
-
     if [[ ! -r /etc/exports ]]; then
         echo "-- /etc/exports (unreadable) --"
         echo "/etc/exports exists but is not readable"
         echo
         return
     fi
-
-    # ---- RAW ENUM ----
     run_cmd cat /etc/exports
-
-    # ---- FINDINGS ----
     local findings=0
-
     if grep -qE 'no_root_squash' /etc/exports; then
         print_finding "NFS export uses no_root_squash (root privilege passthrough)"
         findings=1
     fi
-
     if grep -qE '\(.*rw' /etc/exports; then
         print_finding "Writable NFS export detected (rw)"
         findings=1
     fi
-
     if grep -qE '(^|[[:space:]])\*' /etc/exports; then
         print_finding "NFS export allows all hosts (*)"
         findings=1
     fi
-
     if grep -qE 'insecure' /etc/exports; then
         print_finding "NFS export allows insecure ports"
         findings=1
     fi
-
     if grep -qE 'sync' /etc/exports; then
         print_finding "NFS export uses sync option (performance hint, review context)"
         findings=1
     fi
-
     if [[ $findings -eq 0 ]]; then
         # opcionális: csendben is hagyhatod
         :
     fi
-
     echo
 }
-
 crontab_info() {
-
-    # ---- SYSTEM CRONTAB ----
     if [[ -r /etc/crontab ]]; then
         run_cmd cat /etc/crontab
     else
@@ -1039,8 +586,6 @@ crontab_info() {
         echo "/etc/crontab not readable or does not exist"
         echo
     fi
-
-    # ---- USER CRONTAB ----
     local user_cron
     user_cron=$(crontab -l 2>/dev/null || true)
 
@@ -1048,14 +593,9 @@ crontab_info() {
         echo "-- User crontab --"
         echo "$user_cron"
         echo
-
-        # ---- FINDINGS ----
         while IFS= read -r line; do
             [[ "$line" =~ ^#|^$ ]] && continue
-
-            # extract command part (after time fields)
             cmd=$(echo "$line" | awk '{for (i=6; i<=NF; i++) printf $i " ";}')
-
             if [[ "$cmd" != */usr/bin/* && "$cmd" != */bin/* && "$cmd" != */usr/sbin/* ]]; then
                 print_finding "Cron job executes non-standard path: $cmd"
             fi
@@ -1066,12 +606,10 @@ crontab_info() {
         echo
     fi
 }
-
 systemd_services_info() {
     if ! command -v systemctl >/dev/null 2>&1; then
         return
     fi
-
     local findings=0
     while IFS= read -r svc; do
         raw_exec=$(systemctl show "$svc" -p ExecStart --value 2>/dev/null)
@@ -1084,11 +622,7 @@ systemd_services_info() {
             | cut -d= -f2)
 
         [[ -z "$exec_path" ]] && continue
-
-        # If it's NOT an absolute path → systemd resolves it → ignore
         [[ "$exec_path" != /* ]] && continue
-
-        # Standard system paths → ignore
         if [[ "$exec_path" == /usr/bin/* ||
               "$exec_path" == /bin/* ||
               "$exec_path" == /usr/sbin/* ||
@@ -1110,7 +644,6 @@ systemd_services_info() {
 }
 
 files_owned_root(){
-    # Run find for files owned by root and group = each group of the invoking user
     set +u
     current_user="$(id -un 2>/dev/null || true)"
     group_list=$(id -Gn 2>/dev/null || true)
@@ -1126,21 +659,18 @@ files_owned_root(){
         timeout_bin=""
         timeout_arg=""
     fi
-
     IFS=' ' read -r -a groups_arr <<< "$group_list"
     for grp in "${groups_arr[@]}"; do
         if ! getent group -- "$grp" >/dev/null 2>&1; then
             echo "Skipping group '$grp' (not present in /etc/group or LDAP)."
             continue
         fi
-
         echo "find root-owned, group $grp, with group r/w/x (/proc NOT scanned!)"
         if [[ -n "$timeout_bin" ]]; then
             find_cmd=( "$timeout_bin" "$timeout_arg" find / -path /proc -prune -o \( -type f -o -type d \) -user root -group "$grp" \( -perm -g=w -o -perm -g=r -o -perm -g=x \) -ls )
         else
             find_cmd=( find / -path /proc -prune -o \( -type f -o -type d \) -user root -group "$grp" \( -perm -g=w -o -perm -g=r -o -perm -g=x \) -ls )
         fi
-
         set +e
         find_out="$("${find_cmd[@]}" 2>/dev/null || true)"
         rc_find=$?
@@ -1159,7 +689,6 @@ files_owned_root(){
     done
     fi
 }
-
 list_suid(){
     if command -v timeout >/dev/null 2>&1; then
         timeout_bin="timeout"
@@ -1182,7 +711,6 @@ list_suid(){
     fi
     echo
 }
-
 list_sgid(){
     if command -v timeout >/dev/null 2>&1; then
         timeout_bin="timeout"
@@ -1191,7 +719,6 @@ list_sgid(){
         timeout_bin=""
         timeout_arg=""
     fi
-    # List files and dirs with SGID bit set (robust, non-fatal)
     set +e
     if [[ -n "$timeout_bin" ]]; then
         "${timeout_bin}" "${timeout_arg}" find / \( -type f -o -type d \) -perm -02000 -ls 2>/dev/null || true
@@ -1206,8 +733,6 @@ list_sgid(){
     fi
     echo
 }
-
-# ---- Enumeration flow (preserve order and behavior) ----
 print_section "BASIC SYSTEM CONTEXT"
 print_subsection "id"
 run_cmd id
@@ -1221,12 +746,10 @@ run_cmd ls -la "$HOME"/
 print_section "PRIVILEGE & IDENTITY"
 print_subsection "sudo -V"
 run_cmd sudo -V
-print_subsection "sudo -l"
-run_sudo_list
+print_subsection "don't forget to run sudo -l"
 print_section "EXECUTION ENVIRONMENT"
 print_subsection "Available tools (categorized)"
 check_tools
-attempt_downloads
 print_subsection "Custom systemd units (/etc/systemd/system)"
 systemd_custom_units
 print_subsection "Global shell initialization (/etc/profile.d)"
@@ -1265,4 +788,3 @@ print_subsection "find files/dirs with SUID bit set (perm 04000)"
 list_suid
 print_subsection "find files/dirs with SGID bit set (perm 02000)"
 list_sgid
-# End of script

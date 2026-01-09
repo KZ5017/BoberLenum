@@ -37,68 +37,168 @@
      ██▄▪▐█▐█▌.▐▌██▄▪▐█▐█▄▄▌▐█•█▌▐█▌▐▌▐█▄▄▌██▐█▌▐█▄█▌██ ██▌▐█▌
      ·▀▀▀▀  ▀█▄▀▪·▀▀▀▀  ▀▀▀ .▀  ▀.▀▀▀  ▀▀▀ ▀▀ █▪ ▀▀▀ ▀▀  █▪▀▀▀
 
-### BoberLenum — lightweight parameter‑aware Linux enumeration script
+# BoberLenum 🦫
 
-BoberLenum is a minimal Bash enumeration script inspired by linpeas.sh. It is not a replacement for linpeas or any comprehensive privilege‑escalation scanner — it runs a handful of basic checks and collects a shallow, quick snapshot of a target system to aid manual triage and follow‑up investigation.
+**BoberLenum** is a lightweight Linux enumeration script intended for quick situational awareness during CTFs, labs, and controlled security assessments.
 
----
-
-### What it does (summary)
-
-- Runs basic system queries: id, uname, env, sudo version, sudo -l (with special handling), and basic file listings (home, /var/www, /opt).
-- Detects commonly available tools (wget, curl, python, php, etc.).
-- Optionally downloads remote helpers (pspy, linpeas) from an HTTP server you specify and marks them executable.
-- Enumerates users by scanning /home/* and reports per‑user details (passwd/getent, id, lastlog, ssh, history files, crontabs, basic mail spool email extraction).
-- Finds files owned by root and files with SUID/SGID bits, using timeouts where available to avoid long hangs.
-- Performs length and format validation on supplied parameters (password, IP, filenames) and verifies a provided sudo password before using it to run sudo‑requiring checks.
+> ⚠️ **Important note**  
+> This is **not** a replacement for linPEAS.  
+> BoberLenum intentionally stays lightweight and readable, and does **not** aim to compete with full-scale automated privilege escalation frameworks.
 
 ---
 
-### Quick start and usage
+## ✨ Project Philosophy
 
-- Make the script executable and run locally: chmod +x BoberLenum.sh ./BoberLenum.sh [options]
+BoberLenum was created with the following goals in mind:
+
+- Fast, no-friction local enumeration
+- Human-readable output
+- Minimal dependencies
+- Easy auditing and customization
+- Suitable for constrained or monitored environments
+
+If you need exhaustive checks, exploit suggestions, and heavy heuristics, **linPEAS is the better choice**.  
+If you want a **clean, structured overview of the system without noise**, BoberLenum fits well.
+
+---
+
+## 🧠 What BoberLenum Does
+
+BoberLenum enumerates:
+
+- System and kernel context
+- User and home directory information
+- Sudo capabilities (with optional password verification)
+- Installed tools (categorized)
+- Network configuration
+- Mounted filesystems and exports
+- Cron jobs and systemd services
+- Permission surfaces (SUID/SGID, group-accessible root files)
+- Optional helper tool downloads (pspy, linpeas)
+
+All checks are designed to be **non-exploitative** and **read-only**.
+
+---
+
+## 📦 Available Variants (4 + 1)
+
+This project is intentionally released in multiple variants to fit different operational needs.
+
+### 1️⃣ Base Version (Full Featured - BoberLenum.sh)
+
+- Bash-based
+- Parameter-aware
+- Optional password verification
+- Optional helper downloads (pspy / linpeas)
+- Rich output with colors and sections
+
+This is the reference implementation.
+
+---
+
+### 2️⃣ Base – No Parameters (BoberLenum_param-less.sh)
+
+- Same enumeration logic
+- No arguments required
+- Runs immediately
+- Ideal for quick copy & execute scenarios
+
+---
+
+### 3️⃣ POSIX `sh` Compatible Version (BoberLenum_param-less_sh.sh)
+
+- Fully `/bin/sh` compatible
+- No Bash-specific features
+- Still parameterless
+- Increased portability across minimal systems
+
+---
+
+### 4️⃣ Compact POSIX Version (BoberLenum_param-less_sh_mini.sh)
+
+- `sh` compatible
+- Highly compact
+- Size-optimized
+- Trades off a small amount of functionality:
+  - Tool availability check removed
+  - `lsblk` enumeration removed
+
+This version is intended for:
+- Very restricted environments
+- Payload size constraints
+
+---
+
+### ➕ +1 Encoded Dropper Version (BoberLenum_from_b64.md)
+
+- Based on the **compact POSIX version**
+- Base64 encoded
+- Chunked
+- Fully copy-pasteable
+
+Intended for:
+- Manual terminal-only delivery
+- Environments without file transfer options
+
+---
+
+## 🚀 Usage
+
+Example (base version):
+
+```bash
+chmod +x BoberLenum.sh
+./BoberLenum.sh
+```
+
+With optional parameters:
+
+```bash
+./BoberLenum.sh -pw MySudoPassword -ip 10.10.10.10 -pspy pspy64
+```
+
+> Parameters are strictly validated.  
+> If parameters are provided, consistency rules apply.
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is intended **for educational purposes and authorized security testing only**.
+
+Do **NOT** run this script on systems you do not own or have explicit permission to test.
+
+The author takes no responsibility for misuse.
+
+---
+
+## 🛠️ Customization
+
+BoberLenum is intentionally written in a readable and modular way.  
+Feel free to:
+
+- Remove sections
     
-- Options:
+- Add custom checks
     
-    - **-pw` <password>`** : supply current user sudo password to attempt verification and non‑interactive sudo commands. The script detects and refuses to verify when sudo is configured NOPASSWD or the user is not in sudoers.
-    - **-ip `<IPv4>`** : required when requesting remote downloads (-pspy or -linpeas). Must be a valid IPv4 address.
-    - **-pspy `<filename>`** : download http://`<ip>`/`<filename>` and mark executable (if wget/curl present).
-    - **-linpeas `<filename>`** : download http://`<ip>`/`<filename>` and mark executable (if wget/curl present).
-    - **-h, --help** : show help and exit.
-- Important parameter rules:
+- Adjust timeouts
     
-    - If any parameters are provided, they are validated.
-    - If -ip is provided, at least one of -pspy or -linpeas must be provided.
-    - Password verification uses sudo and will fail if sudo is passwordless or if the invoking user is not in sudoers.
-- Examples:
+- Modify output verbosity
     
-    - Run a plain enumeration (no validations or downloads): `./BoberLenum.sh`
-    - Verify sudo password and attempt a linpeas download from 10.0.0.5:
-    ```
-    ./BoberLenum.sh -pw 'MySudoPass' -ip 10.0.0.5 -linpeas linpeas.sh
-    ```
----
-
-### Behavior and implementation notes
-
-- Validation and safety:
-    - Password length is limited (default MAX_PW_LEN=256). Filenames are limited (MAX_NAME_LEN=30). IPs are validated for IPv4 format and octet ranges.
-    - When verifying a password, the script invalidates any cached sudo timestamp and checks whether sudo is passwordless before attempting to verify.
-- Non‑fatal by design:
-    - Many operations are intentionally non‑fatal: failures are reported but do not stop the script (finds, downloads, crontab reads, etc.). Timeouts are used where possible to avoid long system scans.
-- Output:
-    - Uses ANSI styling (when attached to a TTY) to improve readability and prints labeled headers for commands it runs.
-- Download behavior:
-    - Prefers wget, falls back to curl. Applies a DOWNLOAD_TIMEOUT (default 7s) and cleans up partial files on failure.
-- Safety about running commands:
-    - The script avoids scanning /proc and skips running costly find operations on the invoking user's own files.
 
 ---
 
-### Security, legal & responsible use
+## 🤝 Inspiration
 
-- Only run BoberLenum on systems you own, administer, or on which you have explicit authorization. Running enumeration or download operations against machines you do not control may be illegal and unethical.
-- The script may attempt to validate sudo credentials and may send a provided password to sudo. Do not provide real credentials unless you trust the environment and understand the risks.
-- The download feature fetches remote executables over plain HTTP; prefer running over isolated networks and avoid exposing sensitive data.
+- linPEAS
+    
+- manual Linux privilege escalation checklists
+    
+- real-world CTF and lab workflows
+    
 
 ---
+
+## 📜 License
+
+MIT License
