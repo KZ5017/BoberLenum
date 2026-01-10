@@ -50,7 +50,6 @@ BANNER
 
 set -o errexit
 set -o nounset
-set -o pipefail
 
 # ---- Configuration ----
 MAX_PW_LEN=256
@@ -1072,42 +1071,39 @@ systemd_services_info() {
         return
     fi
 
-    local findings=0
+    findings=0
+
+    # A while ciklus NEM pipe-ban fut → nincs subshell
     while IFS= read -r svc; do
         raw_exec=$(systemctl show "$svc" -p ExecStart --value 2>/dev/null)
-        [[ -z "$raw_exec" ]] && continue
+        [ -z "$raw_exec" ] && continue
 
-        exec_path=$(printf '%s\n' "$raw_exec" \
-            | tr ' ' '\n' \
-            | grep '^path=' \
-            | head -n1 \
-            | cut -d= -f2)
+        exec_path=$(printf '%s\n' "$raw_exec" | tr ' ' '\n' | grep '^path=' | head -n1 | cut -d= -f2)
+        [ -z "$exec_path" ] && continue
 
-        [[ -z "$exec_path" ]] && continue
+        case "$exec_path" in
+            /*) ;;
+            *) continue ;;
+        esac
 
-        # If it's NOT an absolute path → systemd resolves it → ignore
-        [[ "$exec_path" != /* ]] && continue
-
-        # Standard system paths → ignore
-        if [[ "$exec_path" == /usr/bin/* ||
-              "$exec_path" == /bin/* ||
-              "$exec_path" == /usr/sbin/* ||
-              "$exec_path" == /usr/lib/* ||
-              "$exec_path" == /usr/libexec/* ||
-              "$exec_path" == /lib/* ||
-              "$exec_path" == /sbin/* ]]; then
-            continue
-        fi
+        case "$exec_path" in
+            /usr/bin/*|/bin/*|/usr/sbin/*|/usr/lib/*|/usr/libexec/*|/lib/*|/sbin/*)
+                continue
+                ;;
+        esac
 
         print_finding "Service $svc runs non-standard binary: $exec_path"
-        ((findings++))
+        findings=$(expr "$findings" + 1)
+    done <<EOF
+$(systemctl list-units --type=service --no-legend | awk '{print $1}')
+EOF
 
-    done < <(systemctl list-units --type=service --no-legend | awk '{print $1}')
-
-    if (( findings == 0 )); then
-        echo "No non-standard service executables detected.\n"
+    if [ "$findings" -eq 0 ]; then
+        echo "No non-standard service executables detected."
+        echo
     fi
 }
+
 
 files_owned_root(){
     # Run find for files owned by root and group = each group of the invoking user

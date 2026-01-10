@@ -44,7 +44,6 @@ cat << 'BANNER'
 BANNER
 set -o errexit
 set -o nounset
-set -o pipefail
 print_banner() {
   echo "=== BoberLenum enumeration run ==="
   echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
@@ -582,15 +581,16 @@ systemd_services_info() {
         return
     fi
     findings=0
-    systemctl list-units --type=service --no-legend | awk '{print $1}' |
     while IFS= read -r svc; do
         raw_exec=$(systemctl show "$svc" -p ExecStart --value 2>/dev/null)
         [ -z "$raw_exec" ] && continue
 
         exec_path=$(printf '%s\n' "$raw_exec" | tr ' ' '\n' | grep '^path=' | head -n1 | cut -d= -f2)
         [ -z "$exec_path" ] && continue
-        case "$exec_path" in /*) ;; *) continue ;; esac
-
+        case "$exec_path" in
+            /*) ;;
+            *) continue ;;
+        esac
         case "$exec_path" in
             /usr/bin/*|/bin/*|/usr/sbin/*|/usr/lib/*|/usr/libexec/*|/lib/*|/sbin/*)
                 continue
@@ -598,7 +598,9 @@ systemd_services_info() {
         esac
         print_finding "Service $svc runs non-standard binary: $exec_path"
         findings=$(expr "$findings" + 1)
-    done
+    done <<EOF
+$(systemctl list-units --type=service --no-legend | awk '{print $1}')
+EOF
     if [ "$findings" -eq 0 ]; then
         echo "No non-standard service executables detected."
         echo

@@ -1,7 +1,6 @@
 #!/usr/bin/env sh
 set -o errexit
 set -o nounset
-set -o pipefail
 print_banner() {
   echo "=== BoberLenum enumeration run ==="
   echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
@@ -283,13 +282,27 @@ netstat_info(){
     fi
 }
 mount_info() {
-    command -v findmnt >/dev/null 2>&1 || { mount; return; }
-    findmnt -ro TARGET,SOURCE,SIZE,FSTYPE
-    findmnt -ro TARGET,SOURCE,SIZE,FSTYPE |
-    while read t s z f; do
-        case "$t" in
-            /mnt*|/media*|/opt*|/srv*|/tmp*|/home*)
-                print_finding "Non-standard mount: $t <- $s ($f $z)"
+    if ! command -v findmnt >/dev/null 2>&1; then
+        run_cmd mount
+        return
+    fi
+    findmnt -ro TARGET,SOURCE,SIZE,FSTYPE,OPTIONS
+    echo
+    findings=0
+    findmnt -ro TARGET,SOURCE,SIZE,FSTYPE | while IFS= read -r line; do
+        target=$(printf '%s\n' "$line" | awk '{print $1}')
+        source=$(printf '%s\n' "$line" | awk '{print $2}')
+        size=$(printf '%s\n' "$line" | awk '{print $3}')
+        fstype=$(printf '%s\n' "$line" | awk '{print $4}')
+        case "$target" in
+            /|/boot|/boot/*|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*|/usr|/usr/*|/lib|/lib/*|/var|/var/*)
+                continue
+                ;;
+        esac
+        case "$target" in
+            /mnt*|/media*|/opt*|/srv*|/tmp*|/home*|/data*|/backup*|/exports*|/shared*)
+                print_finding "Non-standard mount detected: $target ($fstype, $size) <- $source"
+                findings=1
                 ;;
         esac
     done
@@ -371,15 +384,16 @@ systemd_services_info() {
         return
     fi
     findings=0
-    systemctl list-units --type=service --no-legend | awk '{print $1}' |
+    # A while ciklus NEM pipe-ban fut → nincs subshell
     while IFS= read -r svc; do
         raw_exec=$(systemctl show "$svc" -p ExecStart --value 2>/dev/null)
         [ -z "$raw_exec" ] && continue
-
         exec_path=$(printf '%s\n' "$raw_exec" | tr ' ' '\n' | grep '^path=' | head -n1 | cut -d= -f2)
         [ -z "$exec_path" ] && continue
-        case "$exec_path" in /*) ;; *) continue ;; esac
-
+        case "$exec_path" in
+            /*) ;;
+            *) continue ;;
+        esac
         case "$exec_path" in
             /usr/bin/*|/bin/*|/usr/sbin/*|/usr/lib/*|/usr/libexec/*|/lib/*|/sbin/*)
                 continue
@@ -387,7 +401,10 @@ systemd_services_info() {
         esac
         print_finding "Service $svc runs non-standard binary: $exec_path"
         findings=$(expr "$findings" + 1)
-    done
+    done <<EOF
+$(systemctl list-units --type=service --no-legend | awk '{print $1}')
+EOF
+
     if [ "$findings" -eq 0 ]; then
         echo "No non-standard service executables detected."
         echo
