@@ -1,3 +1,4 @@
+
                            #########                                       
                 #####   ###         ###    #####                           
               ##     ####              ####    ##                          
@@ -39,166 +40,102 @@
 
 # BoberLenum 🦫
 
-**BoberLenum** is a lightweight Linux enumeration script intended for quick situational awareness during CTFs, labs, and controlled security assessments.
+BoberLenum is a lightweight Linux enumeration script designed to quickly collect useful context during post-exploitation, CTFs, or controlled security assessments.
 
-> ⚠️ **Important note**  
-> This is **not** a replacement for linPEAS.  
-> BoberLenum intentionally stays lightweight and readable, and does **not** aim to compete with full-scale automated privilege escalation frameworks.
+It focuses on **clarity, ordering, and signal-over-noise**, rather than exhaustive coverage.
 
----
-
-## ✨ Project Philosophy
-
-BoberLenum was created with the following goals in mind:
-
-- Fast, no-friction local enumeration
-- Human-readable output
-- Minimal dependencies
-- Easy auditing and customization
-- Suitable for constrained or monitored environments
-
-If you need exhaustive checks, exploit suggestions, and heavy heuristics, **linPEAS is the better choice**.  
-If you want a **clean, structured overview of the system without noise**, BoberLenum fits well.
+> ⚠️ This is **not** a LinPEAS replacement and does **not** aim to be in the same weight class.
 
 ---
 
-## 🧠 What BoberLenum Does
+## What this is
 
-BoberLenum enumerates:
-
-- System and kernel context
-- User and home directory information
-- Sudo capabilities (with optional password verification)
-- Installed tools (categorized)
-- Network configuration
-- Mounted filesystems and exports
-- Cron jobs and systemd services
-- Permission surfaces (SUID/SGID, group-accessible root files)
-- Optional helper tool downloads (pspy, linpeas)
-
-All checks are designed to be **non-exploitative** and **read-only**.
+- ✔ A **single-file POSIX shell** enumeration script
+- ✔ Runs sequentially and prints readable, structured output
+- ✔ Collects **common privilege escalation signals** and environment context
+- ✔ Intended for **manual analysis**, not automated exploitation
 
 ---
 
-## 📦 Available Variants (4 + 1)
+## What this is *not*
 
-This project is intentionally released in multiple variants to fit different operational needs.
+- ❌ Not a vulnerability scanner  
+- ❌ Not an exploit framework  
+- ❌ Not a LinPEAS / LinEnum competitor  
+- ❌ No kernel exploit matching or CVE detection  
 
-### 1️⃣ Base Version (Full Featured - BoberLenum.sh)
-
-- Bash-based
-- Parameter-aware
-- Optional password verification
-- Optional helper downloads (pspy / linpeas)
-- Rich output with colors and sections
-
-This is the reference implementation.
+Think of it as a **calm first look**, not a full audit.
 
 ---
 
-### 2️⃣ Base – No Parameters (BoberLenum_param-less.sh)
+## 🧠 Enumerated areas (high-level)
 
-- Same enumeration logic
-- No arguments required
-- Runs immediately
-- Ideal for quick copy & execute scenarios
-
----
-
-### 3️⃣ POSIX `sh` Compatible Version (BoberLenum_param-less_sh.sh)
-
-- Fully `/bin/sh` compatible
-- No Bash-specific features
-- Still parameterless
-- Increased portability across minimal systems
+- Basic system context (id, uname, env)
+- Available binaries grouped by category (networking, interpreters, containers, LOLBins, etc.)
+- User and home directory enumeration
+- SSH artifacts, history files, cron jobs
+- Network configuration and listening services
+- Filesystems, mounts, NFS exports
+- systemd services with non-standard executables
+- Permission surfaces:
+  - SUID / SGID files
+  - Root-owned files accessible by user groups
 
 ---
 
-### 4️⃣ Compact POSIX Version (BoberLenum_param-less_sh_mini.sh)
+## ✨ Design goals
 
-- `sh` compatible
-- Highly compact
-- Size-optimized
-- Trades off a small amount of functionality:
-  - Tool availability check removed
-  - `lsblk` enumeration removed
-
-This version is intended for:
-- Very restricted environments
-- Payload size constraints
-
----
-
-### ➕ +1 Encoded Dropper Version (BoberLenum_from_b64.md)
-
-- Based on the **compact POSIX version**
-- Base64 encoded
-- Chunked
-- Fully copy-pasteable
-
-Intended for:
-- Manual terminal-only delivery
-- Environments without file transfer options
+- **Readable output** over raw volume
+- **Preserve execution order** for reproducibility
+- **Fail-safe execution** (timeouts, error handling)
+- Minimal assumptions about installed tooling
 
 ---
 
 ## 🚀 Usage
 
-Example (base version):
-
 ```bash
-chmod +x BoberLenum.sh
-./BoberLenum.sh
+chmod +x boberlenum.sh
+./boberlenum.sh
 ```
 
-With optional parameters:
+No arguments are required.
 
-```bash
-./BoberLenum.sh -pw MySudoPassword -ip 10.10.10.10 -pspy pspy64
-```
+---
 
-> Parameters are strictly validated.  
-> If parameters are provided, consistency rules apply.
+## Operational notes
+
+- Some sections may produce large output depending on permissions
+    
+- `find` operations are time-limited when `timeout` is available
+    
+- `/proc` is intentionally excluded from filesystem scans
+    
+- Script is read-only and does not modify system state
+    
+
+---
+
+## Intended use
+
+- CTFs and labs (HTB, THM, VulnHub)
+    
+- Internal red team assessments
+    
+- Manual privilege escalation workflows
+    
+- Educational / learning purposes
+    
 
 ---
 
 ## ⚠️ Disclaimer
 
-This tool is intended **for educational purposes and authorized security testing only**.
-
-Do **NOT** run this script on systems you do not own or have explicit permission to test.
-
-The author takes no responsibility for misuse.
-
----
-
-## 🛠️ Customization
-
-BoberLenum is intentionally written in a readable and modular way.  
-Feel free to:
-
-- Remove sections
-    
-- Add custom checks
-    
-- Adjust timeouts
-    
-- Modify output verbosity
-    
-
----
-
-## 🤝 Inspiration
-
-- linPEAS
-    
-- manual Linux privilege escalation checklists
-    
-- real-world CTF and lab workflows
-    
+This script is provided for **educational and authorized security testing only**.  
+Do not run it on systems you do not own or have explicit permission to test.
 
 ---
 
 ## 📜 License
 
-MIT License
+MIT
